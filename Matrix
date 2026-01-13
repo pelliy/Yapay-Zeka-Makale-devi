@@ -1,0 +1,76 @@
+import pandas as pd
+import numpy as np
+import os
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, \
+    classification_report
+
+
+# Dosyayı otomatik bulma
+def dosya_yukle():
+    mevcut_dosyalar = [f for f in os.listdir() if f.endswith(('.csv', '.xlsx'))]
+    if not mevcut_dosyalar:
+        raise FileNotFoundError("Klasörde hiç CSV veya Excel dosyası bulunamadı!")
+
+    # Seçilen dosyayı bildir
+    secilen_dosya = mevcut_dosyalar[0]
+    print(f"--- Kullanılan Dosya: {secilen_dosya} ---")
+
+    if secilen_dosya.endswith('.csv'):
+        return pd.read_csv(secilen_dosya)
+    else:
+        return pd.read_excel(secilen_dosya)
+
+
+# Veriyi yükle
+df = dosya_yukle()
+
+# Veri ön işleme
+# Satma hızı üzerinden hedef değişken (0 ve 1) oluşturma
+df['SATMA HIZI'] = pd.to_numeric(df['SATMA HIZI'], errors='coerce').fillna(0)
+threshold = df['SATMA HIZI'].median()
+df['HEDEF'] = (df['SATMA HIZI'] > threshold).astype(int)
+
+# Sayısal özellikleri seçme (Hata almamak için sadece var olanları seçer)
+ozellikler = ['ÜRÜN TÜRKİYE SIRA', 'ÜRÜN MAĞAZA SIRA', 'İLK STOK', 'SATIŞ ADEDİ',
+              'TOTAL EURO', 'TOTAL STOK (TRANSFER+ MAĞAZA)', 'MAĞAZA STOK']
+mevcut_ozellikler = [col for col in ozellikler if col in df.columns]
+
+X = df[mevcut_ozellikler].fillna(0)
+y = df['HEDEF']
+
+# %80 Eğitim, %20 Test
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.20, random_state=42)
+
+# Modeli Eğitim
+model = RandomForestClassifier(n_estimators=100, random_state=42)
+model.fit(X_train, y_train)
+
+# Tahmin ve Metrikler
+y_pred = model.predict(X_test)
+
+print("\n" + "=" * 40)
+print("MODEL PERFORMANS RAPORU")
+print("=" * 40)
+print(f"Accuracy:  {accuracy_score(y_test, y_pred):.4f}")
+print(f"Precision: {precision_score(y_test, y_pred):.4f}")
+print(f"Recall:    {recall_score(y_test, y_pred):.4f}")
+print(f"F1 Score:  {f1_score(y_test, y_pred):.4f}")
+print("=" * 40)
+
+# Karmaşıklık Matrixi görselleştirme
+cm = confusion_matrix(y_test, y_pred)
+plt.figure(figsize=(7, 5))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Greens',
+            xticklabels=['Yavaş (0)', 'Hızlı (1)'],
+            yticklabels=['Yavaş (0)', 'Hızlı (1)'])
+
+plt.title('Karmaşıklık Matrisi')
+plt.xlabel('Tahmin Edilen')
+plt.ylabel('Gerçek Durum')
+plt.show()
+
+print("\nİşlem tamamlandı. Grafik ekranınızda açılacaktır.")
