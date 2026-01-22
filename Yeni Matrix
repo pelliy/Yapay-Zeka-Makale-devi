@@ -1,0 +1,158 @@
+import pandas as pd
+import numpy as np
+import os
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+
+
+
+# Dosya yüklemesi
+
+def dosya_yukle():
+    mevcut_dosyalar = [f for f in os.listdir() if f.endswith(('.csv', '.xlsx'))]
+    if not mevcut_dosyalar:
+        raise FileNotFoundError("Klasörde hiç CSV veya Excel dosyası bulunamadı!")
+
+    secilen_dosya = mevcut_dosyalar[0]
+    print(f"--- Kullanılan Dosya: {secilen_dosya} ---")
+
+    if secilen_dosya.endswith('.csv'):
+        return pd.read_csv(secilen_dosya)
+    else:
+        return pd.read_excel(secilen_dosya)
+
+
+df = dosya_yukle()
+
+
+# Hedef (Label)
+
+df['SATMA HIZI'] = pd.to_numeric(df['SATMA HIZI'], errors='coerce').fillna(0)
+threshold = df['SATMA HIZI'].median()
+df['HEDEF'] = (df['SATMA HIZI'] > threshold).astype(int)
+
+
+# Özellikler
+
+ozellikler = [
+    'ÜRÜN TÜRKİYE SIRA',
+    'ÜRÜN MAĞAZA SIRA',
+    'İLK STOK',
+    'SATIŞ ADEDİ',
+    'TOTAL EURO',
+    'TOTAL STOK (TRANSFER+ MAĞAZA)',
+    'MAĞAZA STOK'
+]
+
+mevcut_ozellikler = [col for col in ozellikler if col in df.columns]
+
+X = df[mevcut_ozellikler].fillna(0)
+y = df['HEDEF']
+
+
+# Test
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.20, random_state=42, stratify=y
+)
+
+
+#  RANDOM FOREST + GRIDSEARCHCV
+
+rf_param_grid = {
+    'n_estimators': [100, 200],
+    'max_depth': [None, 10, 20],
+    'min_samples_split': [2, 5]
+}
+
+rf = RandomForestClassifier(random_state=42)
+
+rf_grid = GridSearchCV(
+    rf,
+    rf_param_grid,
+    cv=5,
+    scoring='f1',
+    n_jobs=-1,
+    verbose=1
+)
+
+rf_grid.fit(X_train, y_train)
+rf_best = rf_grid.best_estimator_
+
+rf_pred = rf_best.predict(X_test)
+
+
+# LOGISTIC REGRESSION + GRIDSEARCHCV
+
+log_pipeline = Pipeline([
+    ('scaler', StandardScaler()),
+    ('logreg', LogisticRegression(max_iter=1000, random_state=42))
+])
+
+log_pipeline = Pipeline([
+    ('scaler', StandardScaler()),
+    ('logreg', LogisticRegression(
+        max_iter=1000,
+        random_state=42
+    ))
+])
+
+log_param_grid = {
+    'logreg__C': [0.01, 0.1, 1, 10]
+}
+
+log_grid = GridSearchCV(
+    log_pipeline,
+    log_param_grid,
+    cv=5,
+    scoring='f1',
+    n_jobs=-1,
+    verbose=1
+)
+
+log_grid.fit(X_train, y_train)
+log_best = log_grid.best_estimator_
+
+log_pred = log_best.predict(X_test)
+
+
+# Sonuçlar karşılaştırıldı
+
+results = pd.DataFrame({
+    "Model": ["Random Forest", "Logistic Regression"],
+    "Accuracy": [
+        accuracy_score(y_test, rf_pred),
+        accuracy_score(y_test, log_pred)
+    ],
+    "Precision": [
+        precision_score(y_test, rf_pred),
+        precision_score(y_test, log_pred)
+    ],
+    "Recall": [
+        recall_score(y_test, rf_pred),
+        recall_score(y_test, log_pred)
+    ],
+    "F1 Score": [
+        f1_score(y_test, rf_pred),
+        f1_score(y_test, log_pred)
+    ]
+})
+
+print("\nModel Karşılaştırılması")
+print(results.round(4))
+
+# Karmaşıklık Matrixi
+plt.figure(figsize=(6, 4))
+sns.heatmap(confusion_matrix(y_test, rf_pred), annot=True, fmt='d', cmap='Greens')
+plt.title("Random Forest - Confusion Matrix")
+plt.xlabel("Tahmin")
+plt.ylabel("Gerçek")
+plt.tight_layout()
+plt.show()
