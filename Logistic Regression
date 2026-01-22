@@ -1,0 +1,102 @@
+import pandas as pd
+import numpy as np
+import unicodedata
+
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.linear_model import LogisticRegression
+
+
+# Excel'in okunduğu kısım
+df = pd.read_excel("gercek_veri.xlsx")
+
+
+# Sütun adları temizlendi ve düzenlendi
+def temizle(col):
+    col = col.strip().upper()
+    col = unicodedata.normalize("NFKD", col)
+    col = "".join(c for c in col if not unicodedata.combining(c))
+    col = col.replace(" ", "_")
+    return col
+
+df.columns = [temizle(c) for c in df.columns]
+
+
+# Kullanılacak kolonlar
+MAGAZA_COL = "MAGAZA_ADI"
+URUN_COL = "URUN_AILESI"
+SATIS_COL = "SON_HAFTA_SATIS_MIKTARI"
+STOK_COL = "MAGAZA_STOK"
+
+
+# Veri tipi ve boş değer işlemleri
+df[SATIS_COL] = pd.to_numeric(df[SATIS_COL], errors="coerce")
+df[STOK_COL] = pd.to_numeric(df[STOK_COL], errors="coerce")
+
+df[SATIS_COL].fillna(df[SATIS_COL].median(), inplace=True)
+df[STOK_COL].fillna(df[STOK_COL].median(), inplace=True)
+
+df[MAGAZA_COL].fillna(df[MAGAZA_COL].mode()[0], inplace=True)
+df[URUN_COL].fillna(df[URUN_COL].mode()[0], inplace=True)
+
+
+# Gerçek stok ihtiyacı etiketi
+df["GERCEK_IHTIYAC"] = np.where(
+    df[SATIS_COL] > df[STOK_COL],
+    1,
+    0
+)
+
+
+# Kategorik değişkenlerin encode edilmesi
+le_magaza = LabelEncoder()
+le_urun = LabelEncoder()
+
+df["MAGAZA_ENC"] = le_magaza.fit_transform(df[MAGAZA_COL])
+df["URUN_ENC"] = le_urun.fit_transform(df[URUN_COL])
+
+
+# Model için X ve y
+X = df[[SATIS_COL, STOK_COL, "MAGAZA_ENC", "URUN_ENC"]]
+y = df["GERCEK_IHTIYAC"]
+
+
+# 🔹 Logistic Regression için ölçekleme
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+
+# 🔹 Logistic Regression modeli
+model = LogisticRegression(
+    max_iter=1000,
+    random_state=42
+)
+
+model.fit(X_scaled, y)
+
+
+# Tahmin
+df["TAHMIN_IHTIYAC"] = model.predict(X_scaled)
+
+
+# Çıktı: stok ihtiyacı olanlar
+ihtiyac_df = df[df["TAHMIN_IHTIYAC"] == 1][
+    [
+        MAGAZA_COL,
+        URUN_COL,
+        SATIS_COL,
+        STOK_COL
+    ]
+].sort_values(by=SATIS_COL, ascending=False)
+
+
+# Excel çıktısı
+ihtiyac_df.to_excel(
+    "magaza_urun_stok_ihtiyac_tahmini_logistic.xlsx",
+    index=False
+)
+
+
+# Ekran çıktısı
+print("\nLogistic Regression ile stok ihtiyacı tahmin edilen mağaza & ürün aileleri:\n")
+print(ihtiyac_df)
+
